@@ -3,11 +3,12 @@ import requests
 from bs4 import BeautifulSoup
 import csv,os,time
 import logging
+from datetime import datetime
 logging.basicConfig(level=logging.INFO,format="%(asctime)s - %(levelname)s - %(message)s")
 ## global variable
-web_content_list=[]
-message_list=[]
 MAX_RETRY=5
+article_index=1
+index=1
 
 # functions
 def get_previous_page(soup):
@@ -24,6 +25,7 @@ def scrape_web_page_title(headers):
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     data = soup.find_all("div", class_="r-ent")
+    global article_index
     if data:
         for item in data:
             comment=item.find("div",class_="nrec")
@@ -41,51 +43,55 @@ def scrape_web_page_title(headers):
             skip_list=["公告","盤後閒聊","盤中閒聊","情報"]
             if any(keyword in title.text for keyword in skip_list):
                 continue
-            json_dict={
-                "title":title.text.strip(),
-                "comment":comment_txt,#推噓數
-                "author":author.text.strip(),
-                "url":article_url,
-                "date":date.text.strip()
-            }
-            web_page_content=scrape_web_page_content(headers,article_url)
-            if web_page_content:
-                json_dict["comment_and_content"]=web_page_content
-            else:
-                print(f"Error: {article_url}")
+            web_page_content=scrape_web_page_content(headers,article_url,article_index)
+            if not web_page_content:
                 continue
-            web_content_list.append(json_dict)
+            json_dict={
+                "Article_id":article_index,
+                "Title":title.text.strip(),
+                "Push_count":comment_txt,#推噓數
+                "Author":author.text.strip(),
+                "Url":article_url,
+                "Date":date.text.strip(),
+                "Content":web_page_content["Content"],
+                "Scraped_time":datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            article_index+=1
             #using two csv files-title and comment_info
-            with open("ptt_stock_title.csv", "a", newline="", encoding="utf-8") as file:
+            with open("ptt_stock_article_info.csv", "a", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file)
-                writer.writerow([json_dict["title"],json_dict["comment"],json_dict["author"],json_dict["url"],json_dict["date"],json_dict["comment_and_content"]["content"]])
+                writer.writerow([json_dict["Article_id"],json_dict["Title"],json_dict["Push_count"],json_dict["Author"],json_dict["Url"],json_dict["Date"],json_dict["Content"],json_dict["Scraped_time"]])
             with open("ptt_stock_comment_info.csv", "a", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file)
-                for item in json_dict["comment_and_content"]["comment_info"]:
-                    writer.writerow([json_dict["url"],json_dict["title"],item["id"],item["message"],item["pro_and_con"]])
+                for item in web_page_content["Comment_info"]:
+                    writer.writerow([item["Comment_id"],item["Article_id"],item["User_id"],item["Push_tag"],item["Message"]])
         return True
     else:
         return False
-def scrape_web_page_content(headers,url):
+def scrape_web_page_content(headers,url,article_id):
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     main_content=soup.find("div",id="main-content")
     article_content=[]
     comment_info=[]
+    global index
     if main_content:
         #get comment_info
         for item in main_content.find_all("div",class_="push"):
             message=item.find("span",class_="push-content")
-            id=item.find("span",class_="push-userid")
+            user_id=item.find("span",class_="push-userid")
             pro_and_con=item.find("span",class_="push-tag")
             if not (message and id and pro_and_con):
                 continue
             content_dict={
-                "id":id.text.strip(),
-                "message":message.text.strip(),
-                "pro_and_con":pro_and_con.text.strip(),
+                "Comment_id":index,
+                "Article_id":article_id,
+                "User_id":user_id.text.strip(),
+                "Push_tag":pro_and_con.text.strip(),
+                "Message":message.text.strip(),
             }
+            index+=1
             comment_info.append(content_dict)
         #get content of the article
         for item in main_content.find_all("div",class_="push"):#刪除推文
@@ -103,20 +109,19 @@ def scrape_web_page_content(headers,url):
                 article_content.append(line.strip())
         article_content="\n".join(article_content)
         time.sleep(0.3) 
-        return {"content":article_content,"comment_info":comment_info}
+        return {"Content":article_content,"Comment_info":comment_info}
     else:
         return False
 
 #init    
 url = "https://www.ptt.cc/bbs/stock/index.html" #初始url
-file_exists = os.path.exists("ptt_stock_title.csv")
-with open("ptt_stock_title.csv", "w", newline="", encoding="utf-8") as file:
+with open("ptt_stock_article_info.csv", "w", newline="", encoding="utf-8") as file:
     writer = csv.writer(file)
-    writer.writerow(["Title","推噓數","Author","Url","Date"]) 
+    writer.writerow(["Article_id","Title","Push_count","Author","Url","Date","Content","Scraped_time"]) 
 with open("ptt_stock_comment_info.csv", "w", newline="", encoding="utf-8") as file:
     writer = csv.writer(file)
-    writer.writerow(["Url","Title","Id","Message","Pro_and_Con"]) 
-for i in range(2):#爬蟲頁數
+    writer.writerow(["Comment_id","Article_id","User_id","Push_tag","Message"]) 
+for i in range(50):#爬蟲頁數
     retry = 0
     while retry < MAX_RETRY:
         try:
