@@ -41,6 +41,11 @@ def scrape_web_page_title(headers):
             skip_list=["公告","盤後閒聊","盤中閒聊","情報"]
             if any(keyword in title.text for keyword in skip_list):
                 continue
+            cursor.execute("SELECT Article_id FROM ptt_stock_article_info WHERE Url=?",(article_url,))
+            article_id_exist=cursor.fetchone()
+            if article_id_exist:#有查到，表示已存在
+                logging.info(f"已存在 Article_id: {article_id_exist[0]} already exists")
+                continue
             web_page_content=scrape_web_page_content(headers,article_url)
             if not web_page_content:
                 continue
@@ -122,8 +127,6 @@ cursor.execute("PRAGMA foreign_keys = ON")
 
 ## delte content before insert
 ## note that need to delete comment_info first because of the foreign key constraint
-cursor.execute("DELETE FROM ptt_stock_comment_info")
-cursor.execute("DELETE FROM ptt_stock_article_info")
 conn.commit()
 
 for i in range(50):#爬蟲頁數
