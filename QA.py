@@ -1,5 +1,5 @@
 import sqlite3
-
+import pandas as pd
 conn = sqlite3.connect("ptt_stock.db")
 cursor = conn.cursor()
 
